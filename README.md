@@ -122,3 +122,8 @@ DockZoom/
 - SideBar 联动是 DockMinimize 与其自家商业应用的私有协议，未移植。
 - 自动隐藏 Dock 场景：首次点击用于唤出 Dock，点击图标本身仍可正常拦截。
 - 更新检查仓库地址需替换为你的 GitHub 仓库。
+
+## 仓库
+
+- GitHub: https://github.com/Namelessying/DockZoom
+- 下载: https://github.com/Namelessying/DockZoom/releases/latest
