@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 构建检查（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链信息
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+
+      - name: SwiftPM 构建（debug）
+        run: swift build
+
+      - name: SwiftPM 构建（release）
+        run: swift build -c release
+
+      - name: 脚本构建（通用二进制 arm64+x86_64）
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/build.sh release
+          file .build/DockZoom
+
+  # 辅助静态检查：全量警告输出（有警告不算失败，供人工审查）
+  warnings:
+    name: 编译警告扫描（macos-15）
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: 收集编译警告
+        run: |
+          swift build 2>&1 | grep -i "warning:" > warnings.log || true
+          echo "警告数量: $(wc -l < warnings.log | tr -d ' ')"
+          cat warnings.log
+      - name: 上传警告日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-warnings
+          path: warnings.log

@@ -35,6 +35,21 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。
 - 开机自启（SMAppService）、菜单栏图标、日志、崩溃保护、
   EventTap 健康检查（30s）、防 App Nap、权限状态轮询。
 
+## 界面概览
+
+<p align="center">
+  <img src="images/app-icon.png" width="128" alt="DockZoom 应用图标">
+</p>
+
+**应用图标**（窗口落入 Dock 的意象）
+
+| 设置面板 | 菜单栏 | DockZoom 开关 |
+|---|---|---|
+| <img src="images/settings.png" width="280" alt="设置面板"> | <img src="images/menu-bar.png" width="180" alt="菜单栏图标"> | <img src="images/launcher.png" width="280" alt="开关控制台"> |
+
+> 悬停预览、genie 最小化动画等动态效果建议直接下载体验：
+> [Releases 下载](https://github.com/Namelessying/DockZoom/releases/latest)
+
 ## 技术要点
 
 | 项 | 说明 |
