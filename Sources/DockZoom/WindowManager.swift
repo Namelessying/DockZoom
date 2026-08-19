@@ -183,12 +183,16 @@ final class WindowManager {
 
     // MARK: - 通用决策
 
+    /// 注意：事件已被 DockEventMonitor 接管后才会走到这里（QuickAction != .none）。
+    /// 这里的返回值仅用于日志/语义，事件消费已由调用方保证。
+    @discardableResult
     private func decideGeneric(app: NSRunningApplication) -> Bool {
         if app.isHidden {
             DebugLogger.shared.log("决策: \(app.localizedName ?? "?") 已隐藏 → 恢复显示")
             workQueue.async {
                 app.unhide()
                 app.activate()
+                WindowStateTracker.shared.refreshNow(for: app)
             }
             return true
         }
@@ -210,8 +214,26 @@ final class WindowManager {
             return true
         }
 
-        // 其余情况（后台应用 / 无窗口）→ 放行交系统默认
-        return false
+        // AX 枚举为空但 CG 有可见窗口（部分应用不暴露 AX 窗口）→ 激活后合成 ⌘M
+        // （⌘M 走系统最小化路径，仍保留 genie 动画）
+        if windows.isEmpty && WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier) > 0 {
+            DebugLogger.shared.log("决策: \(app.localizedName ?? "?") AX 无窗口但 CG 可见 → 激活后 ⌘M")
+            workQueue.async {
+                app.activate()
+                Thread.sleep(forTimeInterval: 0.3)
+                self.synthesizeCommandM()
+                WindowStateTracker.shared.refreshNow(for: app)
+            }
+            return true
+        }
+
+        // 其余（后台应用有可见窗口）→ 激活（事件已被接管，必须由我们自己执行）
+        DebugLogger.shared.log("决策: \(app.localizedName ?? "?") → 激活")
+        workQueue.async {
+            app.activate()
+            WindowStateTracker.shared.refreshNow(for: app)
+        }
+        return true
     }
 
     // MARK: - 最小化 / 恢复
@@ -241,11 +263,20 @@ final class WindowManager {
         if failures == windows.count && !windows.isEmpty {
             DebugLogger.shared.log("\(app.localizedName ?? "?") 全部窗口 AX 最小化失败，走降级链")
             fallbackMinimize(app: app)
+        } else if failures > 0 {
+            // 部分失败：等待动画后确认是否仍有可见窗口，有则整应用隐藏兜底
+            Thread.sleep(forTimeInterval: 0.4)
+            let remaining = service.visibleStandardWindows(service.windows(for: app))
+            if !remaining.isEmpty {
+                DebugLogger.shared.log("部分窗口最小化失败，剩余 \(remaining.count) 个 → hide 兜底")
+                app.hide()
+            }
         } else {
             DebugLogger.shared.log("最小化完成: \(app.localizedName ?? "?") 成功=\(windows.count - failures)/\(windows.count)")
         }
         // 动作完成后让下一次枚举拿到最新状态（配合 400ms 窗口列表缓存）
         WindowThumbnailService.shared.invalidateWindowCache()
+        WindowStateTracker.shared.refreshNow(for: app)
     }
 
     /// 降级链：kAXHidden → hide() → 合成 ⌘M
@@ -277,6 +308,7 @@ final class WindowManager {
         let minimized = service.minimizedWindows(windows)
         if minimized.isEmpty {
             // 已经全部恢复：仅激活
+            WindowStateTracker.shared.refreshNow(for: app)
             return
         }
         for (index, w) in minimized.enumerated() {
@@ -287,6 +319,7 @@ final class WindowManager {
             }
         }
         WindowThumbnailService.shared.invalidateWindowCache()
+        WindowStateTracker.shared.refreshNow(for: app)
     }
 
     // MARK: - 自身应用
@@ -322,7 +355,7 @@ final class WindowManager {
     }
 
     /// 合成 ⌘M（最后兜底，仍走系统最小化路径 → 保留 genie）
-    private func synthesizeCommandM() {
+    func synthesizeCommandM() {
         guard let source = CGEventSource(stateID: .hidSystemState) else { return }
         let kVK_ANSI_M: CGKeyCode = 0x2E
         let down = CGEvent(keyboardEventSource: source, virtualKey: kVK_ANSI_M, keyDown: true)
@@ -448,6 +481,17 @@ enum WeChatHandler {
         if !app.isActive {
             WindowManager.shared.async {
                 activateMainChat(windows: windows, app: app)
+            }
+            return true
+        }
+
+        // AX 无窗口但 CG 有可见窗口 → 激活后 ⌘M 兜底
+        if windows.isEmpty && WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier) > 0 {
+            WindowManager.shared.async {
+                app.activate()
+                Thread.sleep(forTimeInterval: 0.3)
+                WindowManager.shared.synthesizeCommandM()
+                WindowStateTracker.shared.refreshNow(for: app)
             }
             return true
         }

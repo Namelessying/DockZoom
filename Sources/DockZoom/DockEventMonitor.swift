@@ -29,31 +29,11 @@ final class DockEventMonitor {
     private var runLoopSource: CFRunLoopSource?
     private let workQueue = DispatchQueue(label: "com.dockzoom.dockevent", qos: .userInteractive)
     private let iconCache = DockIconCache()
-    private let decisionTimeout = 10   // ms
 
-    // 连击防抖
+    // 连击防抖（防抖期间静默吞掉，绝不放行给系统）
     private var lastClickPID: pid_t = -1
     private var lastClickTime: TimeInterval = 0
     private let clickDebounce: TimeInterval = 0.25
-
-    // 单飞决策锁：同一时刻只允许一个窗口决策在执行，其余连击直接放行，
-    // 避免决策任务排队堆积导致同一窗口被重复操作（反复点击卡顿的根源）
-    private let decideLock = NSLock()
-    private var decisionInFlight = false
-
-    private func tryBeginDecision() -> Bool {
-        decideLock.lock()
-        defer { decideLock.unlock() }
-        guard !decisionInFlight else { return false }
-        decisionInFlight = true
-        return true
-    }
-
-    private func endDecision() {
-        decideLock.lock()
-        decisionInFlight = false
-        decideLock.unlock()
-    }
 
     // MARK: - 生命周期
 
@@ -119,38 +99,33 @@ final class DockEventMonitor {
         // 1. Dock 区域几何预检
         guard isInDockZone(location) else { return Unmanaged.passUnretained(event) }
 
-        // 2. 反查被点击的 Dock 图标 → 目标应用
+        // 2. 反查被点击的 Dock 图标 → 目标应用（未命中 = 文件夹/废纸篓/未运行 → 放行）
         guard let (app, isHelper) = resolveClickedApp(at: location) else {
             return Unmanaged.passUnretained(event)
         }
 
-        // 3. 同图标 250ms 防抖：genie 动画期间（约 300ms）的连击会任务堆积/状态错乱
+        // 3. O(1) 意图决策（后台快照，无耗时调用）
+        let action = WindowStateTracker.shared.quickAction(for: app)
+        if action == .none {
+            // 无窗口可操作：放行交系统默认（例如 Reopen 打开新窗口）
+            return Unmanaged.passUnretained(event)
+        }
+
+        // 4. 已解析到运行中的应用图标 → 事件由本工具完全接管，绝不放行给系统，
+        //    杜绝"系统也执行一步"的双重行为（超时放行/防抖放行都会触发系统 Reopen）
         let now = Date().timeIntervalSince1970
         if app.processIdentifier == lastClickPID && now - lastClickTime < clickDebounce {
-            return Unmanaged.passUnretained(event)
+            return nil   // 快速连击：静默丢弃（第一击的动作正在执行）
         }
         lastClickPID = app.processIdentifier
         lastClickTime = now
 
-        // 4. 决策 + 执行（10ms 保险箱：超时直接放行，后台逻辑继续但不阻塞输入）
-        //    单飞：已有决策在执行时本次点击直接放行（系统默认行为），不排队
-        guard tryBeginDecision() else {
-            return Unmanaged.passUnretained(event)
-        }
-        var consumed = false
-        var timedOut = false
-        let flag = DispatchSemaphore(value: 0)
-        workQueue.async {
-            consumed = WindowManager.shared.handleDockClick(app: app, isWeChatHelper: isHelper)
-            self.endDecision()
-            flag.signal()
-        }
-        if flag.wait(timeout: .now() + .milliseconds(decisionTimeout)) == .timedOut {
-            timedOut = true
-        }
-        DebugLogger.shared.log("点击: app=\(app.localizedName ?? "?") helper=\(isHelper) 决策=\(consumed) 超时=\(timedOut)")
+        DebugLogger.shared.log("点击接管: app=\(app.localizedName ?? "?") helper=\(isHelper) 意图=\(action)")
 
-        return consumed ? nil : Unmanaged.passUnretained(event)
+        workQueue.async {
+            WindowManager.shared.handleDockClick(app: app, isWeChatHelper: isHelper)
+        }
+        return nil
     }
 
     // MARK: - Dock 区域判定

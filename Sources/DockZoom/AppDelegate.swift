@@ -19,6 +19,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
         DebugLogger.shared.log("DockZoom 启动")
         installCrashHandlers()
 
+        // 支持 --settings 启动参数：启动即打开设置面板（截图/演示/调试用）
+        if CommandLine.arguments.contains("--settings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                SettingsWindowController.shared.show()
+            }
+        }
+
         // 防 App Nap：事件监听需要常驻
         _ = ProcessInfo.processInfo.beginActivity(
             options: .userInitiated,
@@ -144,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
         // 预热单例：在启动路径（而非事件回调内）完成 NSWindow 创建，
         // 避免 dispatch_once 在事件泵中重入崩溃
         _ = PreviewBarController.shared
+        WindowStateTracker.shared.start()
         DockEventMonitor.shared.onClick = { app, isHelper in
             WindowManager.shared.handleDockClick(app: app, isWeChatHelper: isHelper)
         }
