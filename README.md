@@ -117,9 +117,17 @@ DockZoom/
     ├── SettingsWindowController.swift  # 设置面板（6 标签页）
     ├── AccessibilityManager.swift      # 权限
     ├── PrivateApis.swift               # CGS/SkyLight/Dock 位置/坐标
-    ├── UpdateChecker.swift             # GitHub 更新检查（TODO: 替换仓库地址）
+    ├── UpdateChecker.swift             # GitHub 更新检查（指向本仓库 Releases）
     └── DebugLogger.swift               # 文件日志（~/Library/Logs/DockZoom/）
 ```
+
+## 作者与贡献者
+
+| 头像 | 贡献者 | 角色 |
+|---|---|---|
+| <img src="https://github.com/Namelessying.png" width="64" height="64" style="border-radius:50%"> | [Namelessying](https://github.com/Namelessying) | 项目发起人 / 维护者 |
+
+欢迎通过 Issue 反馈问题、Pull Request 提交代码，新贡献者会在此列出。
 
 ## 参考项目与致谢
 
