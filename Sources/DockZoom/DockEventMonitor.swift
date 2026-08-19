@@ -201,24 +201,8 @@ final class DockEventMonitor {
     }
 
     private func app(for fileURL: URL?, title: String?) -> NSRunningApplication? {
-        let apps = RunningAppsCache.shared.apps()
-        // 微信辅助进程（文章/小程序）：Dock 图标 URL 是 WeChatAppEx.app，映射回微信主应用
-        if let fileURL, WeChatHandler.isHelperURL(fileURL),
-           let wechat = apps.first(where: { $0.bundleIdentifier == WeChatHandler.mainBundleID }) {
-            return wechat
-        }
-        if let fileURL, let match = apps.first(where: { $0.bundleURL == fileURL }) {
-            return match
-        }
-        // 标题模糊匹配兜底
-        if let title, !title.isEmpty,
-           let match = apps.first(where: { app in
-               guard let name = app.localizedName else { return false }
-               return name == title || name.contains(title) || title.contains(name)
-           }) {
-            return match
-        }
-        return nil
+        // 统一解析：优先微信主应用、优先同名主进程（Steam 主程序与 Helper 共用 bundleURL）
+        RunningAppsCache.bestMatch(for: fileURL, title: title)
     }
 }
 

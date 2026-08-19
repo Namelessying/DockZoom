@@ -166,8 +166,8 @@ final class WindowThumbnailService {
 
     private func axWindowsForApp(_ pid: pid_t) -> [AXUIElement] {
         let appRef = AXUIElementCreateApplication(pid)
-        // 默认 AX 超时 6s，挂死的应用会拖垮线程；降到 1s
-        AXUIElementSetMessagingTimeout(appRef, 1.0)
+        // 默认 AX 超时 6s，挂死的应用会拖垮线程；降到 0.5s
+        AXUIElementSetMessagingTimeout(appRef, 0.5)
         let (err, value) = axGet(appRef, kAXWindowsAttribute)
         guard err == .success, let windows = value as? [AXUIElement] else { return [] }
         return windows
@@ -229,7 +229,12 @@ final class RunningAppsCache {
         defer { lock.unlock() }
         let now = Date().timeIntervalSince1970
         if cached.isEmpty || now - cachedAt > ttl {
-            cached = NSWorkspace.shared.runningApplications
+            // ⚠️ 过滤僵尸条目：runningApplications 可能包含同 bundleID 的
+            // 已终止对象（processIdentifier == -1），first(where:) 命中它会导致
+            // 后续全部失效（Steam 等会重启进程的应用点击无反应的根因）
+            cached = NSWorkspace.shared.runningApplications.filter {
+                $0.processIdentifier > 0 && !$0.isTerminated
+            }
             cachedAt = now
         }
         return cached
@@ -240,5 +245,81 @@ final class RunningAppsCache {
         cached = []
         cachedAt = 0
         lock.unlock()
+    }
+}
+
+// MARK: - Dock 图标 → 应用解析（多进程同名 bundle 时选主进程）
+
+extension RunningAppsCache {
+    /// 从 Dock 图标反查应用（解决多进程/嵌套 bundle 应用，如 Steam）：
+    ///  1. 微信辅助进程图标 → 主微信
+    ///  2. 用图标 .app 的 bundleIdentifier 匹配进程（最可靠；Steam 主程序 steam_osx 的
+    ///     bundleURL 是嵌套 AppBundle 路径，且不出现在 runningApplications 列表中，
+    ///     需用 proc_listpids 全量扫描进程表找回）
+    ///  3. bundleURL 严格匹配兜底
+    ///  找不到主进程时返回 nil → 点击放行给系统（系统的 LaunchServices 解析是准的，
+    ///     绝不要用标题模糊匹配，它会命中 Helper 进程）
+    static func bestMatch(for fileURL: URL?, title: String?) -> NSRunningApplication? {
+        let apps = shared.apps()
+
+        // 微信辅助进程图标 → 主微信
+        if let url = fileURL, WeChatHandler.isHelperURL(url),
+           let wechat = apps.first(where: { $0.bundleIdentifier == WeChatHandler.mainBundleID }) {
+            return wechat
+        }
+
+        func prefer(_ pool: [NSRunningApplication]) -> NSRunningApplication? {
+            guard !pool.isEmpty else { return nil }
+            if let t = title, !t.isEmpty,
+               let exact = pool.first(where: { $0.localizedName == t && $0.activationPolicy == .regular }) {
+                return exact
+            }
+            if let t = title, !t.isEmpty,
+               let exact = pool.first(where: { $0.localizedName == t }) {
+                return exact
+            }
+            if let regular = pool.first(where: { $0.activationPolicy == .regular }) {
+                return regular
+            }
+            return pool.first
+        }
+
+        // 1) 图标 .app 的 bundleIdentifier 匹配（含进程表全量扫描兜底）
+        if let url = fileURL,
+           let iconBundle = Bundle(url: url),
+           let bid = iconBundle.bundleIdentifier {
+            var pool = apps.filter { $0.bundleIdentifier == bid }
+            if pool.isEmpty, let pid = Self.findPID(byBundleID: bid),
+               let app = NSRunningApplication(processIdentifier: pid) {
+                pool = [app]
+            }
+            if let match = prefer(pool) {
+                return match
+            }
+        }
+
+        // 2) bundleURL 严格匹配兜底
+        if let url = fileURL, let match = prefer(apps.filter { $0.bundleURL == url }) {
+            return match
+        }
+
+        // 3) 找不到主进程：返回 nil（放行给系统），不做模糊匹配以免命中 Helper
+        return nil
+    }
+
+    /// 全量扫描系统进程表，按 bundleIdentifier 找存活进程
+    /// （Steam 主程序等嵌套 bundle 进程不会出现在 runningApplications 中）
+    static func findPID(byBundleID bid: String) -> pid_t? {
+        var pids = [pid_t](repeating: 0, count: 4096)
+        let n = proc_listpids(1 /* PROC_ALL_PIDS */, 0, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard n > 0 else { return nil }
+        let count = min(Int(n) / MemoryLayout<pid_t>.size, pids.count)
+        for i in 0..<count where pids[i] > 0 {
+            if let app = NSRunningApplication(processIdentifier: pids[i]),
+               app.bundleIdentifier == bid, !app.isTerminated {
+                return pids[i]
+            }
+        }
+        return nil
     }
 }

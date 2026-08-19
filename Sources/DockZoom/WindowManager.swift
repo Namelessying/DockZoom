@@ -53,7 +53,7 @@ final class WindowManager {
 
     /// 快捷键唤出/隐藏（跳过黑名单；未运行则启动）
     func toggleViaHotkey(bundleID: String) {
-        let apps = NSWorkspace.shared.runningApplications
+        let apps = RunningAppsCache.shared.apps()
         guard let app = apps.first(where: { $0.bundleIdentifier == bundleID }) else {
             openApplication(bundleID: bundleID)
             return
@@ -99,7 +99,7 @@ final class WindowManager {
     func minimizeAllWindows() {
         workQueue.async {
             let myPID = ProcessInfo.processInfo.processIdentifier
-            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            for app in RunningAppsCache.shared.apps() where app.activationPolicy == .regular {
                 if app.processIdentifier == myPID { continue }
                 let windows = self.service.windows(for: app)
                 let visible = self.service.visibleStandardWindows(windows)
@@ -133,7 +133,7 @@ final class WindowManager {
         // 枚举放到后台队列（AX 调用可能阻塞，不能在事件回调主线程做）
         workQueue.async {
             var others: [(window: WindowThumbnailService.WindowInfo, app: NSRunningApplication)] = []
-            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            for app in RunningAppsCache.shared.apps() where app.activationPolicy == .regular {
                 let windows = self.service.windows(for: app)
                 let visible = self.service.visibleStandardWindows(windows)
                 for w in visible {
@@ -214,14 +214,13 @@ final class WindowManager {
             return true
         }
 
-        // AX 枚举为空但 CG 有可见窗口（部分应用不暴露 AX 窗口）→ 激活后合成 ⌘M
-        // （⌘M 走系统最小化路径，仍保留 genie 动画）
+        // AX 枚举为空但 CG 有可见窗口（部分应用不暴露 AX 窗口，如 Steam）
+        // → 用 hide 切换（可逆且无需 AX；再点一次自动恢复显示）。
+        // 不用 ⌘M：⌘M 最小化的窗口无法在无 AX 的情况下反向恢复。
         if windows.isEmpty && WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier) > 0 {
-            DebugLogger.shared.log("决策: \(app.localizedName ?? "?") AX 无窗口但 CG 可见 → 激活后 ⌘M")
+            DebugLogger.shared.log("决策: \(app.localizedName ?? "?") AX 无窗口但 CG 可见 → hide 兜底切换")
             workQueue.async {
-                app.activate()
-                Thread.sleep(forTimeInterval: 0.3)
-                self.synthesizeCommandM()
+                app.hide()
                 WindowStateTracker.shared.refreshNow(for: app)
             }
             return true
@@ -403,10 +402,23 @@ enum FinderHandler {
         minimized: [WindowThumbnailService.WindowInfo],
         app: NSRunningApplication
     ) {
-        // 主路径：AppleScript 一次恢复全部（首次会弹「控制 Finder」授权框）
+        // 单窗口：直接 AX 恢复（避免 AppleScript 首次授权弹窗卡顿）
+        if minimized.count <= 1 {
+            app.activate()
+            for w in minimized.reversed() {
+                _ = AXUIElementSetAttributeValue(w.axElement, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                _ = AXUIElementPerformAction(w.axElement, kAXRaiseAction as CFString)
+            }
+            WindowThumbnailService.shared.invalidateWindowCache()
+            WindowStateTracker.shared.refreshNow(for: app)
+            return
+        }
+        // 多窗口：AppleScript 一次恢复全部（带超时防止授权弹窗阻塞挂死）
         let source = """
         tell application "Finder"
-            set collapsed of every window to false
+            with timeout of 4 seconds
+                set collapsed of every window to false
+            end timeout
         end tell
         """
         var errorDict: NSDictionary?
@@ -414,14 +426,18 @@ enum FinderHandler {
         script?.executeAndReturnError(&errorDict)
         if errorDict == nil {
             app.activate()
+            WindowThumbnailService.shared.invalidateWindowCache()
+            WindowStateTracker.shared.refreshNow(for: app)
             return
         }
         // 降级：AX 串行恢复
         app.activate()
         for w in minimized.reversed() {
             _ = AXUIElementSetAttributeValue(w.axElement, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            Thread.sleep(forTimeInterval: 0.08)
+            Thread.sleep(forTimeInterval: 0.12)
         }
+        WindowThumbnailService.shared.invalidateWindowCache()
+        WindowStateTracker.shared.refreshNow(for: app)
     }
 }
 
@@ -485,12 +501,10 @@ enum WeChatHandler {
             return true
         }
 
-        // AX 无窗口但 CG 有可见窗口 → 激活后 ⌘M 兜底
+        // AX 无窗口但 CG 有可见窗口 → hide 兜底切换（同通用路径）
         if windows.isEmpty && WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier) > 0 {
             WindowManager.shared.async {
-                app.activate()
-                Thread.sleep(forTimeInterval: 0.3)
-                WindowManager.shared.synthesizeCommandM()
+                app.hide()
                 WindowStateTracker.shared.refreshNow(for: app)
             }
             return true

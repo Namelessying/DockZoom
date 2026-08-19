@@ -112,20 +112,6 @@ final class HoverEventMonitor {
     }
 
     private func app(for icon: DockIconCache.DockIcon) -> NSRunningApplication? {
-        let apps = RunningAppsCache.shared.apps()
-        // 微信辅助进程图标 → 主微信
-        if let url = icon.fileURL, WeChatHandler.isHelperURL(url),
-           let wechat = apps.first(where: { $0.bundleIdentifier == WeChatHandler.mainBundleID }) {
-            return wechat
-        }
-        if let url = icon.fileURL,
-           let match = apps.first(where: { $0.bundleURL == url }) {
-            return match
-        }
-        if !icon.title.isEmpty,
-           let match = apps.first(where: { $0.localizedName == icon.title }) {
-            return match
-        }
-        return nil
+        RunningAppsCache.bestMatch(for: icon.fileURL, title: icon.title)
     }
 }

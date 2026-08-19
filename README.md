@@ -126,6 +126,7 @@ DockZoom/
 | 头像 | 贡献者 | 角色 |
 |---|---|---|
 | <img src="https://github.com/Namelessying.png" width="64" height="64" style="border-radius:50%"> | [Namelessying](https://github.com/Namelessying) | 项目发起人 / 维护者 |
+| <img src="https://raw.githubusercontent.com/Namelessying/DockZoom/main/images/app-icon.png" width="64" height="64" style="border-radius:22%"> | DockZoom AI（DeepSeek 驱动） | 协作开发 / 调试 / 发布维护 |
 
 欢迎通过 Issue 反馈问题、Pull Request 提交代码，新贡献者会在此列出。
 
