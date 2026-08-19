@@ -196,7 +196,7 @@ struct HotkeyTab: View {
     static func loadAppRows() -> [AppHotkeyRow] {
         var seen = Set<String>()
         var rows: [AppHotkeyRow] = []
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        for app in RunningAppsCache.shared.apps() where app.activationPolicy == .regular {
             guard let bundleID = app.bundleIdentifier, !seen.contains(bundleID) else { continue }
             seen.insert(bundleID)
             rows.append(AppHotkeyRow(
@@ -393,7 +393,7 @@ struct PermissionTab: View {
 
 struct AboutTab: View {
     private var version: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? kDockZoomVersion
     }
 
     var body: some View {

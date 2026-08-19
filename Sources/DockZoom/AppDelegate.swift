@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DebugLogger.shared.enabled = SettingsManager.shared.logEnabled
-        DebugLogger.shared.log("DockZoom 启动")
+        DebugLogger.shared.log("DockZoom 启动 (v\(kDockZoomVersion))")
         installCrashHandlers()
 
         // 支持 --settings 启动参数：启动即打开设置面板（截图/演示/调试用）
@@ -24,6 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 SettingsWindowController.shared.show()
             }
+        }
+
+        // 支持 --fix-login-item 启动参数：重注册登录项（刷新系统设置里显示的版本信息）
+        if CommandLine.arguments.contains("--fix-login-item") {
+            SettingsManager.shared.setLaunchAtLogin(false)
+            SettingsManager.shared.setLaunchAtLogin(true)
+            DebugLogger.shared.log("登录项已重新注册")
         }
 
         // 防 App Nap：事件监听需要常驻
