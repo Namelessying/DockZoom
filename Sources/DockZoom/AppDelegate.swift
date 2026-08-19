@@ -33,6 +33,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
             DebugLogger.shared.log("登录项已重新注册")
         }
 
+        // 正式版首次启动时，从开发实例（裸二进制，defaults 域为进程名 DockZoom）迁移用户设置
+        if Bundle.main.bundleIdentifier == "com.dockzoom.app" {
+            let std = UserDefaults.standard
+            if !std.bool(forKey: "settingsMigratedFromDevDomain"),
+               let dev = UserDefaults(suiteName: "DockZoom") {
+                std.set(true, forKey: "settingsMigratedFromDevDomain")
+                for key in ["blacklistedBundleIDs", "hotkeyBindings", "paused",
+                            "hoverPreviewEnabled", "enableIndependentWindowControl",
+                            "enableOriginalPreview", "enableFocusPreview",
+                            "previewStaysVisible", "shakeToFocusEnabled",
+                            "logEnabled", "menuBarIconVisible"] {
+                    if let value = dev.object(forKey: key) {
+                        std.set(value, forKey: key)
+                    }
+                }
+                DebugLogger.shared.log("已从开发实例迁移设置到正式版")
+            }
+        }
+
         // 防 App Nap：事件监听需要常驻
         _ = ProcessInfo.processInfo.beginActivity(
             options: .userInitiated,
