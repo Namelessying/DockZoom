@@ -1,6 +1,10 @@
 # DockZoom
 
-macOS Dock 缩放/最小化增强工具（菜单栏应用）。
+[![版本](https://img.shields.io/github/v/release/Namelessying/DockZoom?label=版本)](https://github.com/Namelessying/DockZoom/releases/latest)
+[![CI](https://github.com/Namelessying/DockZoom/actions/workflows/ci.yml/badge.svg)](https://github.com/Namelessying/DockZoom/actions/workflows/ci.yml)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-1575F9?logo=apple)](#构建与运行)
+
+macOS Dock 缩放/最小化增强工具（菜单栏应用）。当前正式版：**v0.2.6**。
 
 点击 Dock 图标 → 窗口带着**苹果原生 genie/scale 动画**缩进 Dock；再点一次 → 恢复。
 适配所有应用，包括微信（WeChat）、Finder、Electron 无边框窗口等特殊应用。
@@ -33,7 +37,16 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。
 - 🚫 **黑名单**：贴边隐藏/会拦截点击的特殊软件加黑名单后完全跳过。
 - ⚙️ **设置面板**：通用 / 预览 / 黑名单 / 快捷键 / 权限 / 关于。
 - 开机自启（SMAppService）、菜单栏图标、日志、崩溃保护、
-  EventTap 健康检查（30s）、防 App Nap、权限状态轮询。
+  EventTap 被禁用时立即恢复并定时自检、防 App Nap、权限状态轮询。
+
+### v0.2.6 稳定性更新
+
+- Dock 点击回调改为读取后台窗口快照，以 O(1) 完成接管/放行决策，移除超时放行造成的“双重点击”。
+- 应用启动、退出和切换时立即刷新运行应用缓存；EventTap 超时或被系统禁用时立即恢复。
+- 增加窗口决策单元测试、macOS 14/15 双版本构建，以及 Address/Thread Sanitizer 检查。
+- 发布包包含 Launcher、卸载器，以及可复现的 DMG 签名、公证与校验流程。
+
+直接下载：[DockZoom v0.2.6 DMG](https://github.com/Namelessying/DockZoom/releases/download/v0.2.6/DockZoom-0.2.6.dmg)
 
 ## 界面概览
 
@@ -41,11 +54,11 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。
   <img src="images/app-icon.png" width="128" alt="DockZoom 应用图标">
 </p>
 
-**应用图标**（窗口落入 Dock 的意象）
+**应用图标**（窗口沿 genie 曲线缩入 Dock，不再使用容易误认成“下载”的箭头）
 
 | 设置面板 | 菜单栏 | DockZoom 开关 |
 |---|---|---|
-| <img src="images/settings.png" width="280" alt="设置面板"> | <img src="images/menu-bar.png" width="180" alt="菜单栏图标"> | <img src="images/launcher.png" width="280" alt="开关控制台"> |
+| <img src="images/settings.png" width="280" alt="设置面板"> | <img src="images/menu-bar.png" width="280" alt="DockZoom 菜单栏菜单"> | <img src="images/launcher.png" width="280" alt="开关控制台"> |
 
 > 悬停预览、genie 最小化动画等动态效果建议直接下载体验：
 > [Releases 下载](https://github.com/Namelessying/DockZoom/releases/latest)
@@ -55,7 +68,7 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。
 | 项 | 说明 |
 |---|---|
 | 原生动画 | `AXUIElementSetAttributeValue(kAXMinimizedAttribute)` 触发，动画由系统 Dock 播放（无独立 genie 私有 API，此为正解） |
-| 点击检测 | CGEventTap（session + headInsert）+ Dock 图标 AX 缓存（3s 刷新）+ `AXUIElementCopyElementAtPosition` 兜底；10ms 决策保险箱 |
+| 点击检测 | CGEventTap（session + headInsert）+ Dock 图标 AX 缓存 + `AXUIElementCopyElementAtPosition` 兜底；后台窗口快照让回调以 O(1) 同步决策 |
 | Dock 适配 | 底部/左侧/右侧、自动隐藏、多显示器、放大效果（读 com.apple.dock 偏好，实时刷新） |
 | 窗口枚举 | AX `kAXWindows` + `CGWindowList` 双通道合并；`_AXUIElementGetWindow` 关联 windowID |
 | 缩略图 | 私有 `CGSHWCaptureWindowList`（可截最小化窗口），需屏幕录制权限 |
@@ -110,13 +123,20 @@ DockZoom/
 ├── Package.swift                       # SwiftPM 清单（标准环境用）
 ├── scripts/
 │   ├── build.sh                        # swiftc 直接构建
-│   └── make-app.sh                     # 打包 .app bundle
-├── Support/Info.plist                  # LSUIElement 菜单栏应用
+│   ├── make-app.sh                     # 打包 .app bundle
+│   ├── make-dmg.sh                     # 签名、公证与 DMG 发布包
+│   ├── make-icon.swift                 # 生成全尺寸应用图标与 ICNS
+│   └── make-menu-preview.swift         # 生成 README 菜单预览图
+├── Support/                            # Info.plist、图标与签名权限
+├── Tests/DockZoomTests/                # 窗口决策单元测试
+├── .github/workflows/ci.yml            # 双系统构建、测试与 Sanitizer
 └── Sources/DockZoom/
     ├── main.swift                      # 入口
     ├── AppDelegate.swift               # 生命周期/权限/健康检查/崩溃保护
     ├── MenuBarController.swift         # 状态栏
-    ├── DockEventMonitor.swift          # 点击监听 + 图标缓存 + 区域判定
+    ├── DockEventMonitor.swift          # 点击监听 + 图标缓存 + 同步接管判定
+    ├── DockDecision.swift              # 可测试的纯窗口决策逻辑
+    ├── WindowStateTracker.swift        # 后台窗口状态快照（O(1) 查询）
     ├── HoverEventMonitor.swift         # 悬停监听
     ├── PreviewBarController.swift      # 悬停预览条（SwiftUI）
     ├── WindowManager.swift             # 核心：最小化/恢复/降级链/摇窗/老板键
@@ -140,6 +160,7 @@ DockZoom/
 |---|---|---|
 | <img src="https://github.com/Namelessying.png" width="64" height="64" style="border-radius:50%"> | [Namelessying](https://github.com/Namelessying) | 项目发起人 / 维护者 |
 | <img src="https://raw.githubusercontent.com/Namelessying/DockZoom/main/images/app-icon.png" width="64" height="64" style="border-radius:22%"> | DockZoom AI（DeepSeek 驱动） | 协作开发 / 调试 / 发布维护 |
+| <img src="https://github.com/openai.png" width="64" height="64" style="border-radius:22%"> | [OpenAI Codex](https://openai.com/codex/) | 协作开发 / 代码审查 / 测试与文档维护 |
 
 欢迎通过 Issue 反馈问题、Pull Request 提交代码，新贡献者会在此列出。
 
@@ -152,13 +173,14 @@ DockZoom/
 | [JackTonyMa/DockMinimizer](https://github.com/JackTonyMa/DockMinimizer) | Dock 图标 AX 枚举反查、权限真可用判定 |
 | [ejbills/DockDoor](https://github.com/ejbills/DockDoor) | 私有 API 用法参考 |
 | [lwouis/alt-tab-macos](https://github.com/lwouis/alt-tab-macos) | 最小化 API 与全屏窗口处理经验 |
+| [Liu223344/traffic-light-plus](https://github.com/Liu223344/traffic-light-plus) | listen-only EventTap、窗口筛选与自动化测试思路参考 |
 
 ## 已知限制与计划
 
 - 原位预览/聚焦预览为计划功能（设置项已就位）。
 - SideBar 联动是 DockMinimize 与其自家商业应用的私有协议，未移植。
 - 自动隐藏 Dock 场景：首次点击用于唤出 Dock，点击图标本身仍可正常拦截。
-- 更新检查仓库地址需替换为你的 GitHub 仓库。
+- 悬停缩略图依赖未公开的窗口截图接口，未来 macOS 版本可能需要继续适配。
 
 ## 仓库
 
