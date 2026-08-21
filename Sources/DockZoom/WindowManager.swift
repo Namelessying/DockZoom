@@ -43,10 +43,15 @@ final class WindowManager {
             return true
         }
         if WeChatHandler.handles(bundleID) {
-            return WeChatHandler.decide(app: app)
+            if WeChatHandler.decide(app: app) { return true }
+            // 快照与执行之间窗口可能已变化；事件已经被接管时至少复现系统激活语义。
+            app.activate()
+            return true
         }
         if FinderHandler.handles(bundleID) {
-            return FinderHandler.decide(app: app)
+            if FinderHandler.decide(app: app) { return true }
+            app.activate()
+            return true
         }
         return decideGeneric(app: app)
     }
@@ -273,9 +278,9 @@ final class WindowManager {
         } else {
             DebugLogger.shared.log("最小化完成: \(app.localizedName ?? "?") 成功=\(windows.count - failures)/\(windows.count)")
         }
-        // 动作完成后让下一次枚举拿到最新状态（配合 400ms 窗口列表缓存）
+        // 等系统最小化动画结束后再采样，避免把过渡态写入快照。
         WindowThumbnailService.shared.invalidateWindowCache()
-        WindowStateTracker.shared.refreshNow(for: app)
+        WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
     }
 
     /// 降级链：kAXHidden → hide() → 合成 ⌘M
@@ -318,7 +323,7 @@ final class WindowManager {
             }
         }
         WindowThumbnailService.shared.invalidateWindowCache()
-        WindowStateTracker.shared.refreshNow(for: app)
+        WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
     }
 
     // MARK: - 自身应用
@@ -410,7 +415,7 @@ enum FinderHandler {
                 _ = AXUIElementPerformAction(w.axElement, kAXRaiseAction as CFString)
             }
             WindowThumbnailService.shared.invalidateWindowCache()
-            WindowStateTracker.shared.refreshNow(for: app)
+            WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
             return
         }
         // 多窗口：AppleScript 一次恢复全部（带超时防止授权弹窗阻塞挂死）
@@ -427,7 +432,7 @@ enum FinderHandler {
         if errorDict == nil {
             app.activate()
             WindowThumbnailService.shared.invalidateWindowCache()
-            WindowStateTracker.shared.refreshNow(for: app)
+            WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
             return
         }
         // 降级：AX 串行恢复
@@ -437,7 +442,7 @@ enum FinderHandler {
             Thread.sleep(forTimeInterval: 0.12)
         }
         WindowThumbnailService.shared.invalidateWindowCache()
-        WindowStateTracker.shared.refreshNow(for: app)
+        WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
     }
 }
 
@@ -467,6 +472,16 @@ enum WeChatHandler {
 
     @discardableResult
     static func decide(app: NSRunningApplication) -> Bool {
+        // hide 兜底后的下一次点击必须显式解隐；仅 activate/raise 对隐藏应用不可靠。
+        if app.isHidden {
+            WindowManager.shared.async {
+                app.unhide()
+                app.activate()
+                WindowStateTracker.shared.refreshNow(for: app)
+            }
+            return true
+        }
+
         let service = WindowThumbnailService.shared
         let windows = service.windows(for: app)
         let visible = service.visibleStandardWindows(windows)

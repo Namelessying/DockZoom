@@ -29,6 +29,9 @@ jobs:
       - name: SwiftPM 构建（release）
         run: swift build -c release
 
+      - name: 单元测试
+        run: swift test
+
       - name: 脚本构建（通用二进制 arm64+x86_64）
         run: |
           chmod +x scripts/*.sh
@@ -51,3 +54,15 @@ jobs:
         with:
           name: compile-warnings
           path: warnings.log
+
+  sanitizers:
+    name: 运行时检查（${{ matrix.sanitizer }}）
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 单元测试
+        run: swift test --sanitize=${{ matrix.sanitizer }}

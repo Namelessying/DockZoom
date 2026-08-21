@@ -75,6 +75,19 @@ open .build/DockZoom.app       # 运行
 > 标准终端里也可以 `swift build`（SwiftPM，Package.swift 已提供）；
 > 本项目开发环境受限，故另提供直接 swiftc 的构建脚本。
 
+### 对外发布签名与公证
+
+本机构建默认使用固定开发签名（若存在）或 ad-hoc 签名，仅适合自己使用。公开分发请准备 Apple Developer 的 `Developer ID Application` 证书和 `notarytool` 钥匙串配置：
+
+```bash
+DOCKZOOM_SIGN_IDENTITY="Developer ID Application: 你的名称 (TEAMID)" \
+DOCKZOOM_NOTARY_PROFILE="DockZoom-Notary" \
+DOCKZOOM_REQUIRE_DISTRIBUTION=1 \
+./scripts/make-dmg.sh 0.2.6
+```
+
+脚本会为三个 App 启用 Hardened Runtime（主 App 同时带 Finder 自动化 entitlement）、签名 DMG、提交苹果公证并装订公证票据；任一步失败都会终止发布。
+
 ### 首次运行授权
 
 1. 打开应用后按提示授予**辅助功能**权限（系统设置 → 隐私与安全性 → 辅助功能 → 勾选 DockZoom）。

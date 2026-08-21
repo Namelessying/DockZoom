@@ -52,6 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
             }
         }
 
+        // 卸载器在回收 App 前借主程序身份注销 SMAppService，避免系统设置残留失效登录项。
+        if CommandLine.arguments.contains("--uninstall-cleanup") {
+            prepareForUninstall()
+            return
+        }
+
         // 防 App Nap：事件监听需要常驻
         _ = ProcessInfo.processInfo.beginActivity(
             options: .userInitiated,
@@ -97,6 +103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
         }
         dnc.addObserver(forName: Notification.Name("com.dockzoom.quit"), object: nil, queue: .main) { _ in
             NSApp.terminate(nil)
+        }
+        dnc.addObserver(forName: Notification.Name("com.dockzoom.prepareUninstall"), object: nil, queue: .main) { [weak self] _ in
+            self?.prepareForUninstall()
         }
 
         // 首次运行自动开启开机自启（可在菜单栏或设置里关闭）
@@ -246,40 +255,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SettingsProvider {
         UpdateChecker.shared.check(manual: true)
     }
 
+    // MARK: - 卸载准备
+
+    private func prepareForUninstall() {
+        let success = SettingsManager.shared.setLaunchAtLogin(false)
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("com.dockzoom.uninstallPrepared"),
+            object: nil,
+            userInfo: ["success": success],
+            deliverImmediately: true
+        )
+        DebugLogger.shared.log("卸载准备完成: 登录项注销=\(success)")
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+
     // MARK: - 崩溃保护
 
     private func installCrashHandlers() {
         NSSetUncaughtExceptionHandler { exception in
             DebugLogger.shared.log("未捕获异常: \(exception.name) \(exception.reason ?? "")")
         }
-        // 记录信号 + 当前线程栈（写入 stderr 与日志），然后恢复默认处理并重抛，
-        // 让系统正常生成崩溃报告（避免处理器吞掉信号后陷入重复 trap 循环）
-        signal(SIGSEGV, dzSignalHandler)
-        signal(SIGABRT, dzSignalHandler)
-        signal(SIGBUS, dzSignalHandler)
-        signal(SIGFPE, dzSignalHandler)
-        signal(SIGILL, dzSignalHandler)
-        signal(SIGTRAP, dzSignalHandler)
+        // 不安装 POSIX signal handler：Swift 字符串、锁与文件日志均不是
+        // async-signal-safe，崩溃现场调用会死锁或二次崩溃。让 macOS 直接生成 Crash Report。
     }
-}
-
-/// 全局信号处理器（C 函数指针，不能捕获上下文）
-private func dzSignalHandler(_ sig: Int32) {
-    let name: String
-    switch sig {
-    case SIGSEGV: name = "SIGSEGV"
-    case SIGABRT: name = "SIGABRT"
-    case SIGBUS: name = "SIGBUS"
-    case SIGFPE: name = "SIGFPE"
-    case SIGILL: name = "SIGILL"
-    case SIGTRAP: name = "SIGTRAP"
-    default: name = "信号\(sig)"
-    }
-    var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 48)
-    let count = Int(backtrace(&frames, 48))
-    let framesDump = frames[0..<max(count, 0)].map { $0 == nil ? "0x0" : "\($0!)" }.joined(separator: " ")
-    DebugLogger.shared.log("崩溃: \(name) 栈=[\(framesDump)]")
-    backtrace_symbols_fd(&frames, Int32(count), STDERR_FILENO)
-    signal(sig, SIG_DFL)
-    raise(sig)
 }

@@ -1,2 +1,2 @@
-// 自动生成，勿手改（scripts/build.sh 从 Support/Info.plist 生成）
-let kDockZoomVersion = "0.2.4"
+// 随源码提交，保证干净仓库可直接 `swift build`；scripts/build.sh 会从 Info.plist 同步它。
+let kDockZoomVersion = "0.2.6"

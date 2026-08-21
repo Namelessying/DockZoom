@@ -4,7 +4,7 @@
 //
 //  Dock 图标点击监听：CGEventTap（会话级 + headInsert，先于系统处理）
 //  + Dock 图标 AX 缓存命中 + AXUIElementCopyElementAtPosition 实时兜底。
-//  决策在 10ms「保险箱」内完成，超时放行事件，绝不卡死输入链路。
+//  点击回调只读取后台快照，以 O(1) 完成接管/放行决策，绝不卡死输入链路。
 //
 
 import Cocoa
@@ -92,6 +92,13 @@ final class DockEventMonitor {
         type: CGEventType,
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+                DebugLogger.shared.log("EventTap 被系统临时禁用，已立即恢复")
+            }
+            return nil
+        }
         guard type == .leftMouseDown else { return Unmanaged.passUnretained(event) }
 
         let location = event.location
@@ -101,6 +108,12 @@ final class DockEventMonitor {
 
         // 2. 反查被点击的 Dock 图标 → 目标应用（未命中 = 文件夹/废纸篓/未运行 → 放行）
         guard let (app, isHelper) = resolveClickedApp(at: location) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // 黑名单必须在消费事件之前判断。WindowManager 的二次防线返回 false 时，
+        // EventTap 已无法把异步结果交还给系统。
+        if SettingsManager.shared.shouldSkipDockHandling(bundleID: app.bundleIdentifier) {
             return Unmanaged.passUnretained(event)
         }
 

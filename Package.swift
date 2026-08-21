@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "DockZoom",
             path: "Sources/DockZoom"
+        ),
+        .testTarget(
+            name: "DockZoomTests",
+            dependencies: ["DockZoom"],
+            path: "Tests/DockZoomTests"
         )
     ]
 )

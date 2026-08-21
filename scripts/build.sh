@@ -21,7 +21,7 @@ fi
 # 从 Info.plist 提取版本号，生成 AppVersion.swift（裸二进制运行时也能显示真实版本）
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Support/Info.plist 2>/dev/null || echo 0.0.0)"
 cat > Sources/DockZoom/AppVersion.swift <<EOF
-// 自动生成，勿手改（scripts/build.sh 从 Support/Info.plist 生成）
+// 随源码提交，保证干净仓库可直接 \`swift build\`；scripts/build.sh 会从 Info.plist 同步它。
 let kDockZoomVersion = "$VERSION"
 EOF
 echo "版本: $VERSION"

@@ -212,15 +212,20 @@ final class SettingsManager {
         set { defaults.set(newValue, forKey: "launchAtLoginAutoTried") }
     }
 
-    func setLaunchAtLogin(_ enabled: Bool) {
+    @discardableResult
+    func setLaunchAtLogin(_ enabled: Bool) -> Bool {
         do {
             if enabled {
+                if SMAppService.mainApp.status == .enabled { return true }
                 try SMAppService.mainApp.register()
             } else {
+                if SMAppService.mainApp.status == .notRegistered { return true }
                 try SMAppService.mainApp.unregister()
             }
+            return true
         } catch {
             DebugLogger.shared.log("开机启动设置失败: \(error.localizedDescription)")
+            return false
         }
     }
 }
