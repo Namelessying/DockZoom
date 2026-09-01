@@ -31,6 +31,35 @@ final class DockDecisionTests: XCTestCase {
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .none)
     }
 
+    func testSteamBackgroundVisibleActivates() {
+        let snapshot = DockWindowSnapshot(
+            isActive: false, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot), .activate)
+    }
+
+    func testSteamFrontmostVisibleHides() {
+        let snapshot = DockWindowSnapshot(
+            isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot), .minimize)
+    }
+
+    func testSteamHiddenOrWindowlessRestores() {
+        XCTAssertEqual(
+            DockDecision.steamQuickAction(for: DockWindowSnapshot(
+                isActive: false, isHidden: true, visibleCount: 0, minimizedCount: 0
+            )),
+            .unhideActivate
+        )
+        XCTAssertEqual(
+            DockDecision.steamQuickAction(for: DockWindowSnapshot(
+                isActive: false, isHidden: false, visibleCount: 0, minimizedCount: 0
+            )),
+            .unhideActivate
+        )
+    }
+
     func testWindowServerFilterRejectsTransparentAndDegenerateEntries() {
         XCTAssertTrue(DockDecision.isLikelyVisibleWindow(layer: 0, alpha: 1, width: 800, height: 600))
         XCTAssertFalse(DockDecision.isLikelyVisibleWindow(layer: 1, alpha: 1, width: 800, height: 600))

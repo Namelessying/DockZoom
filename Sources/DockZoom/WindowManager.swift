@@ -29,9 +29,15 @@ final class WindowManager {
 
     /// 点击 Dock 图标的总入口；返回 true 表示已接管（吞事件）
     @discardableResult
-    func handleDockClick(app: NSRunningApplication, isWeChatHelper: Bool) -> Bool {
+    func handleDockClick(
+        app: NSRunningApplication,
+        isWeChatHelper: Bool,
+        quickAction: DockQuickAction? = nil
+    ) -> Bool {
         guard let bundleID = app.bundleIdentifier else { return false }
-        if SettingsManager.shared.shouldSkipDockHandling(bundleID: bundleID) { return false }
+        if SettingsManager.shared.shouldSkipDockHandling(
+            bundleID: SteamHandler.settingsBundleID(for: bundleID)
+        ) { return false }
 
         // 自身应用：直接最小化自己的窗口（注意 Bundle.main.bundleIdentifier 可能为 nil）
         if let ownID = Bundle.main.bundleIdentifier, bundleID == ownID {
@@ -51,6 +57,13 @@ final class WindowManager {
         if FinderHandler.handles(bundleID) {
             if FinderHandler.decide(app: app) { return true }
             app.activate()
+            return true
+        }
+        if SteamHandler.handles(bundleID) {
+            SteamHandler.decide(
+                app: app,
+                action: quickAction ?? WindowStateTracker.shared.quickAction(for: app)
+            )
             return true
         }
         return decideGeneric(app: app)

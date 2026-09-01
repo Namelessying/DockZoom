@@ -48,6 +48,14 @@ enum DockDecision {
         return .none
     }
 
+    /// Steam 的窗口由 Helper 承载且不稳定地暴露 AX 最小化状态。
+    /// 只依据应用族的前台、隐藏和 CG 可见状态做确定性切换。
+    static func steamQuickAction(for snapshot: DockWindowSnapshot?) -> DockQuickAction {
+        guard let snapshot else { return .none }
+        if snapshot.isHidden || snapshot.visibleCount == 0 { return .unhideActivate }
+        return snapshot.isActive ? .minimize : .activate
+    }
+
     static func isLikelyVisibleWindow(layer: Int, alpha: Double, width: Double, height: Double) -> Bool {
         layer == 0 && alpha > 0.01 && width > 1 && height > 1
     }
