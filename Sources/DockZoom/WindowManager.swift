@@ -192,50 +192,46 @@ final class WindowManager {
     /// 这里的返回值仅用于日志/语义，事件消费已由调用方保证。
     @discardableResult
     private func decideGeneric(app: NSRunningApplication) -> Bool {
-        if app.isHidden {
-            DebugLogger.shared.log("决策: \(app.localizedName ?? "?") 已隐藏 → 恢复显示")
+        // 隐藏应用不做 AX 查询；Steam 等应用的 AX 服务不可用，查询只会增加延迟。
+        let windows = app.isHidden ? [] : service.windows(for: app)
+        let visible = service.visibleStandardWindows(windows)
+        let minimized = service.minimizedWindows(windows)
+        let cgVisibleCount = WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier)
+        let action = DockDecision.executionAction(for: DockExecutionSnapshot(
+            isActive: app.isActive,
+            isHidden: app.isHidden,
+            axVisibleCount: visible.count,
+            axMinimizedCount: minimized.count,
+            cgVisibleCount: cgVisibleCount
+        ))
+        DebugLogger.shared.log(
+            "决策: \(app.localizedName ?? "?") isActive=\(app.isActive) hidden=\(app.isHidden) " +
+            "AX窗口=\(windows.count) 可见=\(visible.count) 最小化=\(minimized.count) CG可见=\(cgVisibleCount) → \(action)"
+        )
+
+        switch action {
+        case .unhideActivate:
             workQueue.async {
                 app.unhide()
                 app.activate()
                 WindowStateTracker.shared.refreshNow(for: app)
             }
-            return true
-        }
-
-        let windows = service.windows(for: app)
-        let visible = service.visibleStandardWindows(windows)
-        let minimized = service.minimizedWindows(windows)
-        DebugLogger.shared.log("决策: \(app.localizedName ?? "?") isActive=\(app.isActive) 窗口=\(windows.count) 可见=\(visible.count) 最小化=\(minimized.count)")
-
-        // 前台且窗口可见 → 最小化（原生 genie 动画）
-        if app.isActive && !visible.isEmpty {
+        case .minimize:
             workQueue.async { self.minimize(windows: visible, app: app) }
-            return true
-        }
-
-        // 有最小化窗口且没有可见窗口 → 找回（GetBackMyWindows 语义：恢复全部最小化窗口）
-        if visible.isEmpty && !minimized.isEmpty {
+        case .restore:
             workQueue.async { self.restoreAll(windows: windows, app: app) }
-            return true
-        }
-
-        // AX 枚举为空但 CG 有可见窗口（部分应用不暴露 AX 窗口，如 Steam）
-        // → 用 hide 切换（可逆且无需 AX；再点一次自动恢复显示）。
-        // 不用 ⌘M：⌘M 最小化的窗口无法在无 AX 的情况下反向恢复。
-        if windows.isEmpty && WindowStateTracker.shared.cgVisibleCount(for: app.processIdentifier) > 0 {
-            DebugLogger.shared.log("决策: \(app.localizedName ?? "?") AX 无窗口但 CG 可见 → hide 兜底切换")
+        case .hideFallback:
+            // 仅当前台应用不暴露 AX 窗口时才隐藏。后台 Steam 必须先激活，
+            // 否则一次“打开”点击会被错误解释成隐藏。
             workQueue.async {
                 app.hide()
                 WindowStateTracker.shared.refreshNow(for: app)
             }
-            return true
-        }
-
-        // 其余（后台应用有可见窗口）→ 激活（事件已被接管，必须由我们自己执行）
-        DebugLogger.shared.log("决策: \(app.localizedName ?? "?") → 激活")
-        workQueue.async {
-            app.activate()
-            WindowStateTracker.shared.refreshNow(for: app)
+        case .activate:
+            workQueue.async {
+                app.activate()
+                WindowStateTracker.shared.refreshNow(for: app)
+            }
         }
         return true
     }

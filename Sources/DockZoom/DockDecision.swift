@@ -22,6 +22,22 @@ enum DockQuickAction: Equatable {
     case none
 }
 
+struct DockExecutionSnapshot: Equatable {
+    var isActive: Bool
+    var isHidden: Bool
+    var axVisibleCount: Int
+    var axMinimizedCount: Int
+    var cgVisibleCount: Int
+}
+
+enum DockExecutionAction: Equatable {
+    case minimize
+    case restore
+    case unhideActivate
+    case hideFallback
+    case activate
+}
+
 enum DockDecision {
     static func quickAction(for snapshot: DockWindowSnapshot?) -> DockQuickAction {
         guard let snapshot else { return .none }
@@ -34,5 +50,16 @@ enum DockDecision {
 
     static func isLikelyVisibleWindow(layer: Int, alpha: Double, width: Double, height: Double) -> Bool {
         layer == 0 && alpha > 0.01 && width > 1 && height > 1
+    }
+
+    static func executionAction(for snapshot: DockExecutionSnapshot) -> DockExecutionAction {
+        if snapshot.isHidden { return .unhideActivate }
+        if snapshot.isActive && snapshot.axVisibleCount > 0 { return .minimize }
+        if snapshot.axVisibleCount == 0 && snapshot.axMinimizedCount > 0 { return .restore }
+        if snapshot.isActive &&
+            snapshot.axVisibleCount == 0 && snapshot.cgVisibleCount > 0 {
+            return .hideFallback
+        }
+        return .activate
     }
 }
