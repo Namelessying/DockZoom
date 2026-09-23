@@ -113,7 +113,8 @@ final class DockEventMonitor {
 
         // 黑名单必须在消费事件之前判断。WindowManager 的二次防线返回 false 时，
         // EventTap 已无法把异步结果交还给系统。
-        if SettingsManager.shared.shouldSkipDockHandling(bundleID: app.bundleIdentifier) {
+        let settingsBundleID = SteamHandler.settingsBundleID(for: app.bundleIdentifier)
+        if SettingsManager.shared.shouldSkipDockHandling(bundleID: settingsBundleID) {
             return Unmanaged.passUnretained(event)
         }
 
@@ -136,7 +137,7 @@ final class DockEventMonitor {
         DebugLogger.shared.log("点击接管: app=\(app.localizedName ?? "?") helper=\(isHelper) 意图=\(action)")
 
         workQueue.async {
-            WindowManager.shared.handleDockClick(app: app, isWeChatHelper: isHelper)
+            WindowManager.shared.handleDockClick(app: app, isWeChatHelper: isHelper, quickAction: action)
         }
         return nil
     }

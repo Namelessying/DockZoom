@@ -256,9 +256,8 @@ extension RunningAppsCache {
     ///  2. 用图标 .app 的 bundleIdentifier 匹配进程（最可靠；Steam 主程序 steam_osx 的
     ///     bundleURL 是嵌套 AppBundle 路径，且不出现在 runningApplications 列表中，
     ///     需用 proc_listpids 全量扫描进程表找回）
-    ///  3. bundleURL 严格匹配兜底
-    ///  找不到主进程时返回 nil → 点击放行给系统（系统的 LaunchServices 解析是准的，
-    ///     绝不要用标题模糊匹配，它会命中 Helper 进程）
+    ///  3. Steam 主进程无法构造 NSRunningApplication 时，明确映射到拥有窗口的 Helper
+    ///  4. bundleURL 严格匹配兜底
     static func bestMatch(for fileURL: URL?, title: String?) -> NSRunningApplication? {
         let apps = shared.apps()
 
@@ -290,11 +289,19 @@ extension RunningAppsCache {
            let bid = iconBundle.bundleIdentifier {
             var pool = apps.filter { $0.bundleIdentifier == bid }
             if pool.isEmpty, let pid = Self.findPID(byBundleID: bid),
-               let app = NSRunningApplication(processIdentifier: pid) {
+               let app = NSRunningApplication(processIdentifier: pid),
+               app.processIdentifier > 0, !app.isTerminated {
                 pool = [app]
             }
             if let match = prefer(pool) {
                 return match
+            }
+
+            // Steam 的 steam_osx 会出现在进程表，却可能无法构造 NSRunningApplication；
+            // Dock 点击所需的前台/可见状态实际由 Steam Helper 持有。
+            if bid == SteamHandler.mainBundleID,
+               let helper = apps.first(where: { $0.bundleIdentifier == SteamHandler.helperBundleID }) {
+                return helper
             }
         }
 
@@ -303,7 +310,7 @@ extension RunningAppsCache {
             return match
         }
 
-        // 3) 找不到主进程：返回 nil（放行给系统），不做模糊匹配以免命中 Helper
+        // 3) 找不到目标：返回 nil（放行给系统），不做标题模糊匹配
         return nil
     }
 
@@ -316,7 +323,9 @@ extension RunningAppsCache {
         let count = min(Int(n) / MemoryLayout<pid_t>.size, pids.count)
         for i in 0..<count where pids[i] > 0 {
             if let app = NSRunningApplication(processIdentifier: pids[i]),
-               app.bundleIdentifier == bid, !app.isTerminated {
+               app.processIdentifier > 0,
+               app.bundleIdentifier == bid,
+               !app.isTerminated {
                 return pids[i]
             }
         }

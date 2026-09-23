@@ -80,6 +80,7 @@ final class WindowStateTracker {
 
     /// O(1) 意图决策（基于快照，无任何 AX/CG 调用）
     func quickAction(for app: NSRunningApplication) -> DockQuickAction {
+        let recentlyMinimized = WindowManager.shared.wasRecentlyMinimized(app)
         let snapshot = freshSnapshot(forPID: app.processIdentifier).map {
             DockWindowSnapshot(
                 isActive: $0.isActive,
@@ -88,7 +89,13 @@ final class WindowStateTracker {
                 minimizedCount: $0.minimizedCount
             )
         }
-        return DockDecision.quickAction(for: snapshot)
+        if SteamHandler.handles(app.bundleIdentifier) {
+            return DockDecision.steamQuickAction(
+                for: snapshot,
+                recentlyMinimized: recentlyMinimized
+            )
+        }
+        return DockDecision.quickAction(for: snapshot, recentlyMinimized: recentlyMinimized)
     }
 
     /// CG 可见窗口数（供 AX 枚举失败时的兜底判断）
@@ -118,7 +125,9 @@ final class WindowStateTracker {
             }
         }
         let service = WindowThumbnailService.shared
-        let apps = RunningAppsCache.shared.apps().filter { $0.activationPolicy == .regular }
+        let apps = RunningAppsCache.shared.apps().filter {
+            $0.activationPolicy == .regular || SteamHandler.handles($0.bundleIdentifier)
+        }
         let livePIDs = Set(apps.map(\.processIdentifier))
         for app in apps {
             let pid = app.processIdentifier
@@ -127,7 +136,7 @@ final class WindowStateTracker {
             let visibleCount = cgCounts[pid] ?? 0
             // 有 CG 可见窗口或整个应用已隐藏时，QuickAction 不需要 AX 最小化数；
             // 只查询“无可见且未隐藏”的应用，避免每秒轰炸所有进程的 AX 服务。
-            let axMin = (!isHidden && visibleCount == 0)
+            let axMin = (!SteamHandler.handles(app.bundleIdentifier) && !isHidden && visibleCount == 0)
                 ? service.minimizedWindows(service.windows(for: app)).count
                 : 0
             store(Snapshot(
@@ -151,7 +160,9 @@ final class WindowStateTracker {
             guard pid > 0, !app.isTerminated else { return }
             let sampledAt = Date().timeIntervalSince1970
             let service = WindowThumbnailService.shared
-            let axMin = service.minimizedWindows(service.windows(for: app)).count
+            let axMin = SteamHandler.handles(app.bundleIdentifier)
+                ? 0
+                : service.minimizedWindows(service.windows(for: app)).count
             let cgVisible = Self.countCGVisible(pid: pid)
             self.store(Snapshot(
                 isActive: app.isActive,
@@ -171,7 +182,9 @@ final class WindowStateTracker {
             guard pid > 0, !app.isTerminated else { return }
             let sampledAt = Date().timeIntervalSince1970
             let service = WindowThumbnailService.shared
-            let axMin = service.minimizedWindows(service.windows(for: app)).count
+            let axMin = SteamHandler.handles(app.bundleIdentifier)
+                ? 0
+                : service.minimizedWindows(service.windows(for: app)).count
             let cgVisible = Self.countCGVisible(pid: pid)
             self.store(Snapshot(
                 isActive: app.isActive,

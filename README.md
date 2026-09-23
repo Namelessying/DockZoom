@@ -4,7 +4,7 @@
 [![CI](https://github.com/Namelessying/DockZoom/actions/workflows/ci.yml/badge.svg)](https://github.com/Namelessying/DockZoom/actions/workflows/ci.yml)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-1575F9?logo=apple)](#构建与运行)
 
-macOS Dock 缩放/最小化增强工具（菜单栏应用）。当前正式版：**v0.2.6**。
+macOS Dock 缩放/最小化增强工具（菜单栏应用）。当前正式版：**v0.2.7**。
 
 点击 Dock 图标 → 窗口带着**苹果原生 genie/scale 动画**缩进 Dock；再点一次 → 恢复。
 适配所有应用，包括微信（WeChat）、Finder、Electron 无边框窗口等特殊应用。
@@ -39,6 +39,15 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。当前正式版�
 - 开机自启（SMAppService）、菜单栏图标、日志、崩溃保护、
   EventTap 被禁用时立即恢复并定时自检、防 App Nap、权限状态轮询。
 
+### v0.2.7 兼容性更新
+
+- 修复 Steam 的 Dock 图标与 Helper 窗口分属不同进程时，点击后行为异常的问题。
+- 修复 QQ 等应用快速连续点击 Dock 图标时，窗口状态快照滞后导致第二次点击未恢复的问题。
+- 后台应用缺少 AX 窗口信息时，优先激活应用，避免误隐藏。
+- 连续最小化多个窗口时增加短暂间隔，让系统动画稳定启动。
+
+直接下载：[DockZoom v0.2.7 DMG](https://github.com/Namelessying/DockZoom/releases/download/v0.2.7/DockZoom-0.2.7.dmg)
+
 ### v0.2.6 稳定性更新
 
 - Dock 点击回调改为读取后台窗口快照，以 O(1) 完成接管/放行决策，移除超时放行造成的“双重点击”。
@@ -46,7 +55,7 @@ macOS Dock 缩放/最小化增强工具（菜单栏应用）。当前正式版�
 - 增加窗口决策单元测试、macOS 14/15 双版本构建，以及 Address/Thread Sanitizer 检查。
 - 发布包包含 Launcher、卸载器，以及可复现的 DMG 签名、公证与校验流程。
 
-直接下载：[DockZoom v0.2.6 DMG](https://github.com/Namelessying/DockZoom/releases/download/v0.2.6/DockZoom-0.2.6.dmg)
+历史版本：[DockZoom v0.2.6 DMG](https://github.com/Namelessying/DockZoom/releases/download/v0.2.6/DockZoom-0.2.6.dmg)
 
 ## 界面概览
 
@@ -96,7 +105,7 @@ open .build/DockZoom.app       # 运行
 DOCKZOOM_SIGN_IDENTITY="Developer ID Application: 你的名称 (TEAMID)" \
 DOCKZOOM_NOTARY_PROFILE="DockZoom-Notary" \
 DOCKZOOM_REQUIRE_DISTRIBUTION=1 \
-./scripts/make-dmg.sh 0.2.6
+./scripts/make-dmg.sh 0.2.7
 ```
 
 脚本会为三个 App 启用 Hardened Runtime（主 App 同时带 Finder 自动化 entitlement）、签名 DMG、提交苹果公证并装订公证票据；任一步失败都会终止发布。

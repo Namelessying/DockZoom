@@ -16,6 +16,11 @@ final class DockDecisionTests: XCTestCase {
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .minimize)
     }
 
+    func testRecentMinimizeOverridesStaleVisibleSnapshot() {
+        let snapshot = DockWindowSnapshot(isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0)
+        XCTAssertEqual(DockDecision.quickAction(for: snapshot, recentlyMinimized: true), .restore)
+    }
+
     func testBackgroundVisibleApplicationActivates() {
         let snapshot = DockWindowSnapshot(isActive: false, isHidden: false, visibleCount: 1, minimizedCount: 0)
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .activate)
@@ -31,10 +36,112 @@ final class DockDecisionTests: XCTestCase {
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .none)
     }
 
+    func testSteamBackgroundVisibleActivates() {
+        let snapshot = DockWindowSnapshot(
+            isActive: false, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot), .activate)
+    }
+
+    func testSteamFrontmostVisibleHides() {
+        let snapshot = DockWindowSnapshot(
+            isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot), .minimize)
+    }
+
+    func testSteamRapidClickRestoresDespiteStaleVisibleSnapshot() {
+        let snapshot = DockWindowSnapshot(
+            isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot, recentlyMinimized: true), .restore)
+    }
+
+    func testSteamHiddenOrWindowlessRestores() {
+        XCTAssertEqual(
+            DockDecision.steamQuickAction(for: DockWindowSnapshot(
+                isActive: false, isHidden: true, visibleCount: 0, minimizedCount: 0
+            )),
+            .unhideActivate
+        )
+        XCTAssertEqual(
+            DockDecision.steamQuickAction(for: DockWindowSnapshot(
+                isActive: false, isHidden: false, visibleCount: 0, minimizedCount: 0
+            )),
+            .unhideActivate
+        )
+    }
+
     func testWindowServerFilterRejectsTransparentAndDegenerateEntries() {
         XCTAssertTrue(DockDecision.isLikelyVisibleWindow(layer: 0, alpha: 1, width: 800, height: 600))
         XCTAssertFalse(DockDecision.isLikelyVisibleWindow(layer: 1, alpha: 1, width: 800, height: 600))
         XCTAssertFalse(DockDecision.isLikelyVisibleWindow(layer: 0, alpha: 0, width: 800, height: 600))
         XCTAssertFalse(DockDecision.isLikelyVisibleWindow(layer: 0, alpha: 1, width: 1, height: 600))
+    }
+
+    func testBackgroundAXLessApplicationActivatesInsteadOfHiding() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: false,
+            isHidden: false,
+            axVisibleCount: 0,
+            axMinimizedCount: 0,
+            cgVisibleCount: 1
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot), .activate)
+    }
+
+    func testActiveAXLessApplicationUsesReversibleHideFallback() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: true,
+            isHidden: false,
+            axVisibleCount: 0,
+            axMinimizedCount: 0,
+            cgVisibleCount: 1
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot), .hideFallback)
+    }
+
+    func testRecentMinimizeAvoidsHideWhenAXWindowTemporarilyDisappears() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: true,
+            isHidden: false,
+            axVisibleCount: 0,
+            axMinimizedCount: 0,
+            cgVisibleCount: 1
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot, recentlyMinimized: true), .restore)
+    }
+
+    func testHiddenAXLessApplicationUnhidesBeforeActivation() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: false,
+            isHidden: true,
+            axVisibleCount: 0,
+            axMinimizedCount: 0,
+            cgVisibleCount: 0
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot), .unhideActivate)
+    }
+
+    func testActiveApplicationWithAXWindowsMinimizes() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: true,
+            isHidden: false,
+            axVisibleCount: 2,
+            axMinimizedCount: 0,
+            cgVisibleCount: 2
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot), .minimize)
+    }
+
+    func testApplicationWithOnlyMinimizedAXWindowsRestores() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: false,
+            isHidden: false,
+            axVisibleCount: 0,
+            axMinimizedCount: 2,
+            cgVisibleCount: 0
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot), .restore)
     }
 }

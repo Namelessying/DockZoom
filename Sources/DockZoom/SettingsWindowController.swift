@@ -6,6 +6,7 @@
 
 import AppKit
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 final class SettingsWindowController: NSWindowController {
