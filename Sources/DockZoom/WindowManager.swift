@@ -18,6 +18,10 @@ final class WindowManager {
 
     private let service = WindowThumbnailService.shared
     private let workQueue = DispatchQueue(label: "com.dockzoom.windows", qos: .userInteractive)
+    private let transitionLock = NSLock()
+    private var recentMinimizations: [pid_t: (at: TimeInterval, windows: [WindowThumbnailService.WindowInfo])] = [:]
+    private let recentClickInterval: TimeInterval = 1.5
+    private let rememberedWindowInterval: TimeInterval = 8.0
 
     enum Source {
         case dockClick
@@ -66,7 +70,7 @@ final class WindowManager {
             )
             return true
         }
-        return decideGeneric(app: app)
+        return decideGeneric(app: app, quickAction: quickAction)
     }
 
     /// 快捷键唤出/隐藏（跳过黑名单；未运行则启动）
@@ -204,7 +208,10 @@ final class WindowManager {
     /// 注意：事件已被 DockEventMonitor 接管后才会走到这里（QuickAction != .none）。
     /// 这里的返回值仅用于日志/语义，事件消费已由调用方保证。
     @discardableResult
-    private func decideGeneric(app: NSRunningApplication) -> Bool {
+    private func decideGeneric(
+        app: NSRunningApplication,
+        quickAction: DockQuickAction?
+    ) -> Bool {
         // 隐藏应用不做 AX 查询；Steam 等应用的 AX 服务不可用，查询只会增加延迟。
         let windows = app.isHidden ? [] : service.windows(for: app)
         let visible = service.visibleStandardWindows(windows)
@@ -216,7 +223,7 @@ final class WindowManager {
             axVisibleCount: visible.count,
             axMinimizedCount: minimized.count,
             cgVisibleCount: cgVisibleCount
-        ))
+        ), recentlyMinimized: quickAction == .restore || wasRecentlyMinimized(app))
         DebugLogger.shared.log(
             "决策: \(app.localizedName ?? "?") isActive=\(app.isActive) hidden=\(app.isHidden) " +
             "AX窗口=\(windows.count) 可见=\(visible.count) 最小化=\(minimized.count) CG可见=\(cgVisibleCount) → \(action)"
@@ -285,6 +292,7 @@ final class WindowManager {
                 app.hide()
             }
         } else {
+            rememberMinimized(windows, for: app)
             DebugLogger.shared.log("最小化完成: \(app.localizedName ?? "?") 成功=\(windows.count - failures)/\(windows.count)")
         }
         // 等系统最小化动画结束后再采样，避免把过渡态写入快照。
@@ -318,21 +326,86 @@ final class WindowManager {
         if app.isHidden { app.unhide() }
         app.activate()
 
-        let minimized = service.minimizedWindows(windows)
+        var minimized = service.minimizedWindows(windows)
+        // App 的 AXWindows 在最小化动画中可能短暂变成空数组；保留刚刚成功
+        // 最小化的 AX 元素，也补齐动画期间暂时缺失的其它窗口。
+        let liveIDs = Set(minimized.map(\.windowId))
+        minimized.append(contentsOf: rememberedMinimizedWindows(for: app).filter {
+            !liveIDs.contains($0.windowId)
+        })
         if minimized.isEmpty {
             // 已经全部恢复：仅激活
             WindowStateTracker.shared.refreshNow(for: app)
             return
         }
+        var restored = 0
         for (index, w) in minimized.enumerated() {
-            _ = AXUIElementSetAttributeValue(w.axElement, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-            _ = AXUIElementPerformAction(w.axElement, kAXRaiseAction as CFString)
+            let error = AXUIElementSetAttributeValue(
+                w.axElement, kAXMinimizedAttribute as CFString, kCFBooleanFalse
+            )
+            if error == .success {
+                restored += 1
+                _ = AXUIElementPerformAction(w.axElement, kAXRaiseAction as CFString)
+            }
             if index < minimized.count - 1 {
                 Thread.sleep(forTimeInterval: 0.05)
             }
         }
+        if restored > 0 {
+            clearRememberedMinimization(for: app)
+            DebugLogger.shared.log("恢复完成: \(app.localizedName ?? "?") 成功=\(restored)/\(minimized.count)")
+        } else {
+            DebugLogger.shared.log("恢复失败: \(app.localizedName ?? "?") 的 AX 窗口暂时不可用")
+        }
         WindowThumbnailService.shared.invalidateWindowCache()
         WindowStateTracker.shared.refreshAfterWindowTransition(for: app)
+    }
+
+    /// 只在最近一次 AX 最小化成功后短暂覆盖可能滞后的 CG/AX 快照。
+    func wasRecentlyMinimized(_ app: NSRunningApplication) -> Bool {
+        let pid = app.processIdentifier
+        guard pid > 0 else { return false }
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
+        guard let transition = recentMinimizations[pid] else { return false }
+        return Date().timeIntervalSince1970 - transition.at <= recentClickInterval
+    }
+
+    private func rememberMinimized(
+        _ windows: [WindowThumbnailService.WindowInfo],
+        for app: NSRunningApplication
+    ) {
+        guard app.processIdentifier > 0, !windows.isEmpty else { return }
+        let remembered = windows.map { window -> WindowThumbnailService.WindowInfo in
+            var copy = window
+            copy.isMinimized = true
+            copy.isOnScreen = false
+            return copy
+        }
+        transitionLock.lock()
+        let oldestUseful = Date().timeIntervalSince1970 - rememberedWindowInterval
+        recentMinimizations = recentMinimizations.filter { $0.value.at >= oldestUseful }
+        recentMinimizations[app.processIdentifier] = (
+            at: Date().timeIntervalSince1970,
+            windows: remembered
+        )
+        transitionLock.unlock()
+    }
+
+    private func rememberedMinimizedWindows(for app: NSRunningApplication) -> [WindowThumbnailService.WindowInfo] {
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
+        guard let transition = recentMinimizations[app.processIdentifier],
+              Date().timeIntervalSince1970 - transition.at <= rememberedWindowInterval else {
+            return []
+        }
+        return transition.windows
+    }
+
+    private func clearRememberedMinimization(for app: NSRunningApplication) {
+        transitionLock.lock()
+        recentMinimizations.removeValue(forKey: app.processIdentifier)
+        transitionLock.unlock()
     }
 
     // MARK: - 自身应用

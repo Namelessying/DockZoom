@@ -80,6 +80,7 @@ final class WindowStateTracker {
 
     /// O(1) 意图决策（基于快照，无任何 AX/CG 调用）
     func quickAction(for app: NSRunningApplication) -> DockQuickAction {
+        let recentlyMinimized = WindowManager.shared.wasRecentlyMinimized(app)
         let snapshot = freshSnapshot(forPID: app.processIdentifier).map {
             DockWindowSnapshot(
                 isActive: $0.isActive,
@@ -89,9 +90,12 @@ final class WindowStateTracker {
             )
         }
         if SteamHandler.handles(app.bundleIdentifier) {
-            return DockDecision.steamQuickAction(for: snapshot)
+            return DockDecision.steamQuickAction(
+                for: snapshot,
+                recentlyMinimized: recentlyMinimized
+            )
         }
-        return DockDecision.quickAction(for: snapshot)
+        return DockDecision.quickAction(for: snapshot, recentlyMinimized: recentlyMinimized)
     }
 
     /// CG 可见窗口数（供 AX 枚举失败时的兜底判断）

@@ -31,7 +31,13 @@ enum SteamHandler {
             }
             WindowManager.shared.fallbackMinimize(app: app)
 
-        case .restore, .unhideActivate:
+        case .restore:
+            WindowManager.shared.restoreAll(
+                windows: WindowThumbnailService.shared.windows(for: app),
+                app: app
+            )
+
+        case .unhideActivate:
             let windows = WindowThumbnailService.shared.windows(for: app)
             if !WindowThumbnailService.shared.minimizedWindows(windows).isEmpty {
                 WindowManager.shared.restoreAll(windows: windows, app: app)

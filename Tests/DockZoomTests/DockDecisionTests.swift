@@ -16,6 +16,11 @@ final class DockDecisionTests: XCTestCase {
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .minimize)
     }
 
+    func testRecentMinimizeOverridesStaleVisibleSnapshot() {
+        let snapshot = DockWindowSnapshot(isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0)
+        XCTAssertEqual(DockDecision.quickAction(for: snapshot, recentlyMinimized: true), .restore)
+    }
+
     func testBackgroundVisibleApplicationActivates() {
         let snapshot = DockWindowSnapshot(isActive: false, isHidden: false, visibleCount: 1, minimizedCount: 0)
         XCTAssertEqual(DockDecision.quickAction(for: snapshot), .activate)
@@ -43,6 +48,13 @@ final class DockDecisionTests: XCTestCase {
             isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0
         )
         XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot), .minimize)
+    }
+
+    func testSteamRapidClickRestoresDespiteStaleVisibleSnapshot() {
+        let snapshot = DockWindowSnapshot(
+            isActive: true, isHidden: false, visibleCount: 1, minimizedCount: 0
+        )
+        XCTAssertEqual(DockDecision.steamQuickAction(for: snapshot, recentlyMinimized: true), .restore)
     }
 
     func testSteamHiddenOrWindowlessRestores() {
@@ -87,6 +99,17 @@ final class DockDecisionTests: XCTestCase {
             cgVisibleCount: 1
         )
         XCTAssertEqual(DockDecision.executionAction(for: snapshot), .hideFallback)
+    }
+
+    func testRecentMinimizeAvoidsHideWhenAXWindowTemporarilyDisappears() {
+        let snapshot = DockExecutionSnapshot(
+            isActive: true,
+            isHidden: false,
+            axVisibleCount: 0,
+            axMinimizedCount: 0,
+            cgVisibleCount: 1
+        )
+        XCTAssertEqual(DockDecision.executionAction(for: snapshot, recentlyMinimized: true), .restore)
     }
 
     func testHiddenAXLessApplicationUnhidesBeforeActivation() {

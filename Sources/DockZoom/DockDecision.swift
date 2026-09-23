@@ -39,9 +39,13 @@ enum DockExecutionAction: Equatable {
 }
 
 enum DockDecision {
-    static func quickAction(for snapshot: DockWindowSnapshot?) -> DockQuickAction {
+    static func quickAction(
+        for snapshot: DockWindowSnapshot?,
+        recentlyMinimized: Bool = false
+    ) -> DockQuickAction {
         guard let snapshot else { return .none }
         if snapshot.isHidden { return .unhideActivate }
+        if recentlyMinimized { return .restore }
         if snapshot.visibleCount == 0 && snapshot.minimizedCount > 0 { return .restore }
         if snapshot.isActive && snapshot.visibleCount > 0 { return .minimize }
         if !snapshot.isActive && snapshot.visibleCount > 0 { return .activate }
@@ -50,8 +54,12 @@ enum DockDecision {
 
     /// Steam 的窗口由 Helper 承载且不稳定地暴露 AX 最小化状态。
     /// 只依据应用族的前台、隐藏和 CG 可见状态做确定性切换。
-    static func steamQuickAction(for snapshot: DockWindowSnapshot?) -> DockQuickAction {
+    static func steamQuickAction(
+        for snapshot: DockWindowSnapshot?,
+        recentlyMinimized: Bool = false
+    ) -> DockQuickAction {
         guard let snapshot else { return .none }
+        if recentlyMinimized && !snapshot.isHidden { return .restore }
         if snapshot.isHidden || snapshot.visibleCount == 0 { return .unhideActivate }
         return snapshot.isActive ? .minimize : .activate
     }
@@ -60,8 +68,12 @@ enum DockDecision {
         layer == 0 && alpha > 0.01 && width > 1 && height > 1
     }
 
-    static func executionAction(for snapshot: DockExecutionSnapshot) -> DockExecutionAction {
+    static func executionAction(
+        for snapshot: DockExecutionSnapshot,
+        recentlyMinimized: Bool = false
+    ) -> DockExecutionAction {
         if snapshot.isHidden { return .unhideActivate }
+        if recentlyMinimized { return .restore }
         if snapshot.isActive && snapshot.axVisibleCount > 0 { return .minimize }
         if snapshot.axVisibleCount == 0 && snapshot.axMinimizedCount > 0 { return .restore }
         if snapshot.isActive &&
