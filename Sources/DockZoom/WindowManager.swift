@@ -273,11 +273,15 @@ final class WindowManager {
         }
 
         var failures = 0
-        for w in windows {
+        for (index, w) in windows.enumerated() {
             let err = AXUIElementSetAttributeValue(w.axElement, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
             if err != .success {
                 failures += 1
                 DebugLogger.shared.log("AX 最小化失败: windowId=\(w.windowId) (\(err))")
+            }
+            // 给 Dock 的 genie/scale 动画留出启动间隔，避免多窗口连续请求互相打断。
+            if err == .success && index < windows.count - 1 {
+                Thread.sleep(forTimeInterval: 0.08)
             }
         }
         if failures == windows.count && !windows.isEmpty {
